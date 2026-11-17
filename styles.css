@@ -458,3 +458,13 @@ input[type=email], input[type=tel], input[type=password] {
   padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; min-height: 52px; appearance: none; -webkit-appearance: none;
 }
 input[type=email]:focus, input[type=tel]:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(47,178,160,.2); }
+
+/* ---------- v1.1.1: tab bar always on one line; faster taps ---------- */
+.tabbar { display: flex !important; }
+.tabbar button { flex: 1 1 0; min-width: 0; font-size: 11px; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
+.tabbar button svg { width: 22px; height: 22px; }
+button, .btn, .item, .req-card, .chips button, .filters button, .seg button, .checklist .box, label.btn, .tool { touch-action: manipulation; }
+.item:active, .req-card:active { background: #f0f1f7; }
+.checklist .box { width: 30px; height: 30px; }
+.checklist .ck { cursor: pointer; }
+@media (max-width: 360px) { .tabbar button { font-size: 10px; } .seg button { font-size: 13px; } }

@@ -6,7 +6,7 @@
  */
 (() => {
   'use strict';
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.1.1';
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -197,7 +197,7 @@
 
   /* ============================================================ sync */
   let syncing = false, syncTimer, lastSync = '', syncErr = '';
-  const syncSoon = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncAll, 800); };
+  const syncSoon = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncAll, 2500); };
   async function post(body) {
     const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 300000);
     try {
@@ -476,8 +476,8 @@
     const added = await addMediaFiles(files);
     if (inp.dataset.media.startsWith('shot:')) {
       const i = +inp.dataset.media.split(':')[1]; added.forEach((m) => (m.shot = i));
-      const c = find('coverage', viewingCov); const shots = clone(c.shots); if (shots[i]) shots[i].done = true;
-      await saveCov({ media: [...(c.media || []), ...added], shots }); toast('Added – uploads to Drive on sync'); return;
+      await saveCov((c) => { const shots = clone(c.shots); if (shots[i]) shots[i].done = true; return { media: [...(c.media || []), ...added], shots }; });
+      toast('Added – uploads to Drive on sync'); return;
     }
     if (inp.dataset.media === 'capture') { capMedia.push(...added); $('#capMedia').innerHTML = mediaStrip(capMedia, true); }
     else { editMedia.push(...added); renderEditMedia(); editorDirty = true; saveDraftSoon(); }
@@ -993,7 +993,16 @@
     $('#rvActions').hidden = !$('#rvAccept').hidden;
     if (document.activeElement !== $('#rvNotes')) $('#rvNotes').value = r.notes || '';
   }
-  async function saveReq(changes) { const r = find('request', viewingReq); await queue('request', 'upsert', { ...r, ...changes }); if (cur() === 'request-view') renderRequestView(); }
+  let reqChain = Promise.resolve();
+  function saveReq(changes) {
+    const id = viewingReq;
+    reqChain = reqChain.then(async () => {
+      const r = find('request', id); if (!r) return;
+      await queue('request', 'upsert', { ...r, ...changes });
+      if (cur() === 'request-view' && viewingReq === id) renderRequestView();
+    }).catch((e) => console.error(e));
+    return reqChain;
+  }
   $('#rvActions').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-ra]'); if (!b) return;
     const r = find('request', viewingReq); const act = b.dataset.ra;
@@ -1069,7 +1078,7 @@
     $('#cgLinks').innerHTML = links.join('');
     $('#cgContacts').innerHTML = (c.contacts || []).map((p) => `<div class="contact"><div><b>${esc(p.name)}</b><small>${esc(p.role || '')}</small></div>${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : ''}</div>`).join('') || '<p class="empty-note">No contacts yet – add them with “Edit plan”.</p>';
     const eq = c.equipment || [];
-    $('#cgEquip').innerHTML = eq.map((x, i) => `<div class="ck ${x.done ? 'done' : ''}"><span class="box" data-eq="${i}">${x.done ? '✓' : ''}</span><span class="txt">${esc(x.text)}</span></div>`).join('') || '<p class="empty-note">No equipment list.</p>';
+    $('#cgEquip').innerHTML = eq.map((x, i) => `<div class="ck ${x.done ? 'done' : ''}" data-eq="${i}"><span class="box">${x.done ? '✓' : ''}</span><span class="txt">${esc(x.text)}</span></div>`).join('') || '<p class="empty-note">No equipment list.</p>';
     $('#cgEqCount').textContent = `${eq.filter((x) => x.done).length} of ${eq.length} packed`;
     $('#cgConsent').textContent = c.consentCollected || '0';
     $('#cgConsentOf').textContent = c.consentNeeded ? `collected of ~${c.consentNeeded} needed` : 'forms collected';
@@ -1084,23 +1093,36 @@
     if (document.activeElement !== $('#cgHighlights')) $('#cgHighlights').value = c.highlights || '';
     $('#cgMakePost').textContent = c.postId && find('post', c.postId) ? 'Open the draft post' : 'Create draft post';
   }
-  async function saveCov(changes, rerender = true) { const c = find('coverage', viewingCov); await queue('coverage', 'upsert', { ...c, ...changes }); if (rerender && cur() === 'coverage-view') renderCoverageView(); }
+  function tick(el) { const row = el.closest('.ck'); const bx = row.querySelector('.box'); const on = !row.classList.contains('done'); row.classList.toggle('done', on); bx.textContent = on ? '✓' : ''; }
+  // saves run one after another, each starting from the latest data, so quick taps are never lost
+  let covChain = Promise.resolve();
+  function saveCov(changes, rerender = true) {
+    const id = viewingCov;
+    covChain = covChain.then(async () => {
+      const c = find('coverage', id); if (!c) return;
+      const ch = typeof changes === 'function' ? changes(c) : changes;
+      await queue('coverage', 'upsert', { ...c, ...ch });
+      if (rerender && cur() === 'coverage-view' && viewingCov === id) renderCoverageView();
+    }).catch((e) => console.error(e));
+    return covChain;
+  }
   $('#cgEquip').addEventListener('click', (e) => {
     const b = e.target.closest('[data-eq]'); if (!b) return;
-    const c = find('coverage', viewingCov); const eq = clone(c.equipment); eq[+b.dataset.eq].done = !eq[+b.dataset.eq].done; saveCov({ equipment: eq });
+    tick(b);
+    const i = +b.dataset.eq; saveCov((c) => { const eq = clone(c.equipment); eq[i].done = !eq[i].done; return { equipment: eq }; });
   });
   $('#cgShots').addEventListener('click', (e) => {
     const c = find('coverage', viewingCov);
-    const b = e.target.closest('[data-shot]'); if (b) { const s2 = clone(c.shots); s2[+b.dataset.shot].done = !s2[+b.dataset.shot].done; saveCov({ shots: s2 }); return; }
-    const st = e.target.closest('[data-star]'); if (st) { const m = clone(c.media); m[+st.dataset.star].best = !m[+st.dataset.star].best; saveCov({ media: m }); return; }
+    const b = e.target.closest('[data-shot]'); if (b) { tick(b); const i = +b.dataset.shot; saveCov((x) => { const s2 = clone(x.shots); s2[i].done = !s2[i].done; return { shots: s2 }; }); return; }
+    const st = e.target.closest('[data-star]'); if (st) { st.textContent = st.textContent === '★' ? '☆' : '★'; const j = +st.dataset.star; saveCov((x) => { const m = clone(x.media); m[j].best = !m[j].best; return { media: m }; }); return; }
     const cm = e.target.closest('[data-cm]');
     if (cm) { const m = c.media[+cm.dataset.cm]; DB.get('media', m.mid).then((rec) => { if (rec && rec.blob) window.open(URL.createObjectURL(rec.blob), '_blank'); else if (m.url) window.open(m.url, '_blank'); }); }
   });
-  $('#cgPlus').addEventListener('click', () => { const c = find('coverage', viewingCov); saveCov({ consentCollected: String((parseInt(c.consentCollected, 10) || 0) + 1) }); });
-  $('#cgMinus').addEventListener('click', () => { const c = find('coverage', viewingCov); saveCov({ consentCollected: String(Math.max(0, (parseInt(c.consentCollected, 10) || 0) - 1)) }); });
-  $('#cgSaveAfter').addEventListener('click', async () => { await saveCov({ highlights: $('#cgHighlights').value }); toast('Saved'); });
+  $('#cgPlus').addEventListener('click', () => { $('#cgConsent').textContent = (parseInt($('#cgConsent').textContent, 10) || 0) + 1; saveCov((c) => ({ consentCollected: String((parseInt(c.consentCollected, 10) || 0) + 1) })); });
+  $('#cgMinus').addEventListener('click', () => { $('#cgConsent').textContent = Math.max(0, (parseInt($('#cgConsent').textContent, 10) || 0) - 1); saveCov((c) => ({ consentCollected: String(Math.max(0, (parseInt(c.consentCollected, 10) || 0) - 1)) })); });
+  $('#cgSaveAfter').addEventListener('click', async () => { const h = $('#cgHighlights').value; await saveCov({ highlights: h }); toast('Saved'); });
   $('#cgMakePost').addEventListener('click', async () => {
-    const c = find('coverage', viewingCov);
+    await covChain; const c = find('coverage', viewingCov);
     if (c.postId && find('post', c.postId)) { openPostView(c.postId); return; }
     const hl = $('#cgHighlights').value.trim();
     const best = (c.media || []).filter((m) => m.best);
@@ -1202,5 +1224,5 @@
     if (!settings.url) toast('Open More → Settings to connect to Google', 4000);
     syncAll();
   })();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:' && location.hostname !== 'localhost') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && location.hostname !== 'localhost') navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {});
 })();
