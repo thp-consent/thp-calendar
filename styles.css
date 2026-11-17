@@ -418,3 +418,43 @@ input[type=color] { width: 60px; height: 44px; border: 1.5px solid var(--line); 
 .icon-btn.spin svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 a.btn { text-decoration: none; }
+.topbar-logo.app-mark { padding: 0; background: none; border-radius: 9px; }
+
+/* ---------- v1.1: work (requests + coverage) ---------- */
+.tabbar { grid-template-columns: repeat(5, 1fr); }
+.tabbar button { font-size: 11px; }
+.seg.two { grid-template-columns: 1fr 1fr; }
+.seg button span { background: var(--danger); color: #fff; border-radius: 99px; padding: 0 7px; font-size: 12px; margin-left: 4px; }
+.seg button span:empty { display: none; }
+.share-form { border-left: 5px solid var(--teal); }
+.k-req, .dots i.k-req { background: #9b59b6; } .dots i.k-cov { background: #d35400; }
+.item.t-req { border-left-color: #9b59b6; } .item.t-cov { border-left-color: #d35400; }
+.st-New { background: #fde3e0; color: var(--danger); } .st-Accepted { background: #e6effc; color: #2a5bb3; }
+.st-In-progress { background: #fff1d6; color: #8a5a00; } .st-Done { background: var(--teal-soft); color: #136b5f; } .st-Declined { background: #eee; color: #777; }
+.st-Planned { background: #e6effc; color: #2a5bb3; } .st-Covered { background: var(--teal-soft); color: #136b5f; }
+.req-card { background: #fff; border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; border-left: 4px solid #9b59b6; }
+.req-card.urgent { border-left-color: var(--danger); }
+.req-card b { display: block; }
+.req-card small { color: var(--muted); display: block; }
+.req-card .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; }
+.checklist .ck { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.checklist .ck:first-child { border-top: 0; padding-top: 0; }
+.checklist .box { width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--navy); flex: none; display: grid; place-items: center; background: #fff; cursor: pointer; font-weight: 700; color: #fff; }
+.checklist .ck.done .box { background: var(--teal); border-color: var(--teal); }
+.checklist .ck.done .txt { text-decoration: line-through; color: var(--muted); }
+.checklist .txt { flex: 1; min-width: 0; padding-top: 2px; }
+.checklist .addm { flex: none; font-size: 13px; font-weight: 600; color: var(--navy); border: 1.5px solid var(--line); border-radius: 99px; padding: 4px 10px; cursor: pointer; background: #fff; }
+.checklist .media-strip { margin: 6px 0 0; }
+.media-strip .star { position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(255,255,255,.92); color: #b36b16; font-size: 15px; cursor: pointer; line-height: 26px; padding: 0; }
+.consent-count { display: flex; align-items: center; justify-content: space-between; text-align: center; }
+.consent-count b { font-size: 34px; color: var(--navy); display: block; }
+.consent-count small { color: var(--muted); }
+.consent-count .btn { width: 56px; font-size: 22px; }
+.contact { display: flex; justify-content: space-between; align-items: center; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; }
+.contact small { color: var(--muted); display: block; }
+.contact a { font-weight: 700; color: var(--teal); text-decoration: none; }
+input[type=email], input[type=tel], input[type=password] {
+  display: block; width: 100%; margin-top: 8px; font: inherit; font-weight: 400; font-size: 17px; color: var(--ink);
+  padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; min-height: 52px; appearance: none; -webkit-appearance: none;
+}
+input[type=email]:focus, input[type=tel]:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(47,178,160,.2); }

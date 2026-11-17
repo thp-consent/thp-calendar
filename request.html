@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#32347C">
+  <title>Request support from THP Ghana Comms</title>
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    main { padding-bottom: 60px; }
+    .intro { background: linear-gradient(135deg, var(--navy), var(--navy-dark)); color: #fff; border-radius: 18px; padding: 20px; margin-bottom: 16px; }
+    .intro h1 { color: #fff; margin: 0 0 6px; font-size: 25px; }
+    .intro p { margin: 0; opacity: .9; }
+    .files { list-style: none; padding: 0; margin: 8px 0 0; }
+    .files li { display: flex; justify-content: space-between; gap: 8px; background: #fff; border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; font-size: 14px; }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <img src="assets/logo.png" alt="The Hunger Project Ghana" class="topbar-logo">
+  <div class="topbar-title"><strong>Comms request</strong><span class="net on">THP Ghana Communications</span></div>
+</header>
+<main>
+  <form id="rq" novalidate autocomplete="on">
+    <div class="intro">
+      <h1>How can the comms team help?</h1>
+      <p>Event coverage, a social media post, a flyer, photos or a story – send it here so nothing gets lost. You will get an email when it is accepted and when it is done.</p>
+    </div>
+    <div id="badLink" class="notice" hidden>This link is incomplete. Please ask the comms team for the correct request link.</div>
+
+    <div class="card">
+      <h2>About you</h2>
+      <label class="field req">Your name<input name="fromName" type="text" autocomplete="name" autocapitalize="words"></label>
+      <label class="field req">Your email<input name="fromEmail" type="email" autocomplete="email" inputmode="email"></label>
+      <div class="row2">
+        <label class="field">Phone / WhatsApp<input name="fromPhone" type="tel" autocomplete="tel"></label>
+        <label class="field">Team or project<input name="team" type="text"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Your request</h2>
+      <div class="field req"><span class="label">What do you need?</span>
+        <div class="chips" data-name="type">
+          <button type="button" data-v="Event coverage">📸 Event coverage</button>
+          <button type="button" data-v="Social media post">📣 Social media post</button>
+          <button type="button" data-v="Flyer / design">🎨 Flyer / design</button>
+          <button type="button" data-v="Photos / video">🎥 Photos / video</button>
+          <button type="button" data-v="Story / article">📝 Story / article</button>
+          <button type="button" data-v="Other">Other</button>
+        </div>
+      </div>
+      <label class="field req">Short title<input name="title" type="text" placeholder="e.g. Cover the VSLA graduation in Nkoranza"></label>
+      <label class="field">Details<textarea name="details" placeholder="What is it for, who is the audience, key messages, people to feature, wording…"></textarea></label>
+      <div id="eventBox" hidden>
+        <div class="row2">
+          <label class="field req">Event date<input name="eventDate" type="date"></label>
+          <label class="field">Start time<input name="eventTime" type="time"></label>
+        </div>
+        <label class="field">Location<input name="location" type="text" placeholder="Community, venue"></label>
+      </div>
+      <label class="field">Needed by<input name="neededBy" type="date"></label>
+      <div class="field"><span class="label">Priority</span>
+        <div class="chips" data-name="priority"><button type="button" data-v="Normal" class="on">Normal</button><button type="button" data-v="Urgent">🔴 Urgent</button></div>
+      </div>
+      <div class="field"><span class="label">Attachments <small>(optional – photos, a draft, a logo; up to 3 files, 8 MB each)</small></span>
+        <label class="btn"><input type="file" id="fileIn" multiple hidden>Add files</label>
+        <ul class="files" id="fileList"></ul>
+      </div>
+    </div>
+
+    <button type="button" class="btn primary big" id="send">Send request</button>
+    <p class="hint" id="msg"></p>
+  </form>
+
+  <div id="done" hidden>
+    <div class="done">
+      <div class="tick"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <h1>Request sent</h1>
+      <p class="mono" id="ref"></p>
+      <p>Check your email for a confirmation. We will let you know when it is accepted.</p>
+      <button class="btn big" id="another">Send another request</button>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast" hidden></div>
+<script src="request.js"></script>
+</body>
+</html>

@@ -6,7 +6,7 @@
  */
 (() => {
   'use strict';
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -69,14 +69,14 @@
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   /* ============================================================ data: server snapshot + local changes */
-  const TYPES = ['posts', 'ideas', 'campaigns', 'keydates', 'hashsets', 'events'];
-  const typeKey = { post: 'posts', idea: 'ideas', campaign: 'campaigns', keydate: 'keydates', hashset: 'hashsets', event: 'events' };
+  const TYPES = ['posts', 'ideas', 'campaigns', 'keydates', 'hashsets', 'events', 'requests', 'coverage'];
+  const typeKey = { post: 'posts', idea: 'ideas', campaign: 'campaigns', keydate: 'keydates', hashset: 'hashsets', event: 'events', request: 'requests', coverage: 'coverage' };
   let S = null; // server snapshot
-  const L = { posts: [], ideas: [], campaigns: [], keydates: [], hashsets: [], events: [], thumbs: {} };
+  const L = { posts: [], ideas: [], campaigns: [], keydates: [], hashsets: [], events: [], requests: [], coverage: [], thumbs: {} };
   let pendingOps = [];
   async function rebuild() {
     S = S || (await DB.get('cache', 'server')) || { posts: [], ideas: [], campaigns: [], keydates: [], hashsets: [], events: [], thumbs: {} };
-    TYPES.forEach((t) => (L[t] = clone(S[t] || [])));
+    TYPES.forEach((t) => (L[t] = clone((S && S[t]) || [])));
     L.thumbs = { ...(S.thumbs || {}) };
     pendingOps = (await DB.all('ops')).sort((a, b) => a.seq - b.seq);
     pendingOps.forEach((o) => {
@@ -87,7 +87,9 @@
       if (i >= 0) arr[i] = it; else arr.push(it);
     });
     // thumbnails for media added on this device
-    for (const t of ['posts', 'ideas']) L[t].forEach((it) => (it.media || []).forEach((m) => { if (m.thumb) L.thumbs[m.mid] = m.thumb; }));
+    for (const t of ['posts', 'ideas', 'coverage']) L[t].forEach((it) => (it.media || []).forEach((m) => { if (m.thumb) L.thumbs[m.mid] = m.thumb; }));
+    const nNew = L.requests.filter((r) => r.status === 'New').length;
+    $('#workDot').hidden = !nNew; $('#workDot').textContent = nNew;
     $('#tagList').innerHTML = [...new Set([...L.posts, ...L.ideas].flatMap((x) => x.tags || []))].map((t) => `<option value="${esc(t)}">`).join('');
   }
   const find = (type, id) => L[typeKey[type]].find((x) => x.id === id);
@@ -214,11 +216,13 @@
     try {
       for (const o of await DB.all('ops')) if (o.sending) { o.sending = false; await DB.put('ops', o); } // leftovers from an interrupted sync
       const ops = (await DB.all('ops')).sort((a, b) => a.seq - b.seq).filter((o) => !o.error);
-      for (const o of ops) {
+      for (const o0 of ops) {
+        const o = await DB.get('ops', o0.seq); // re-read: it may have been updated while earlier items were sending
+        if (!o || o.error) continue;
         o.sending = true; await DB.put('ops', o);
         // upload any photos / videos / voice notes first
         if (o.item && o.item.media && o.item.media.some((m) => !m.fileId)) {
-          const folder = o.type === 'idea' ? 'Ideas' : 'Posts';
+          const folder = o.type === 'idea' ? 'Ideas' : o.type === 'coverage' ? 'Coverage' : 'Posts';
           const media = [];
           for (const m of o.item.media) media.push(await ensureUploaded(m, folder));
           o.item.media = media; await DB.put('ops', o);
@@ -234,6 +238,7 @@
             for (const later of await DB.all('ops')) if (later.type === 'event' && (later.item ? later.item.id : later.id) === o.item.id) {
               if (later.item) later.item.id = r.item.id; else later.id = r.item.id; await DB.put('ops', later);
             }
+            for (const cv of L.coverage) if (cv.eventId === o.item.id) await queue('coverage', 'upsert', { ...cv, eventId: r.item.id });
           }
         } catch (e) { o.sending = false; if (e.fatal) o.error = e.message; await DB.put('ops', o); if (!e.fatal) throw e; }
       }
@@ -279,10 +284,10 @@
   $('#btnSyncTop').addEventListener('click', syncAll);
 
   /* ============================================================ navigation */
-  const TABS = ['calendar', 'ideas', 'posts', 'more'];
+  const TABS = ['calendar', 'ideas', 'posts', 'work', 'more'];
   let stack = ['calendar'];
   const cur = () => stack[stack.length - 1];
-  const TITLES = { calendar: 'Calendar', ideas: 'Ideas', posts: 'Posts', more: 'More', settings: 'Settings', 'post-view': 'Post', 'post-edit': 'Post', 'event-view': 'Event', 'event-edit': 'Event', 'idea-edit': 'Idea', 'campaign-view': 'Campaign', 'campaign-edit': 'Campaign', 'keydate-edit': 'Key date', 'hashset-edit': 'Hashtags' };
+  const TITLES = { calendar: 'Calendar', ideas: 'Ideas', posts: 'Posts', more: 'More', settings: 'Settings', 'post-view': 'Post', 'post-edit': 'Post', 'event-view': 'Event', 'event-edit': 'Event', 'idea-edit': 'Idea', 'campaign-view': 'Campaign', 'campaign-edit': 'Campaign', 'keydate-edit': 'Key date', 'hashset-edit': 'Hashtags', work: 'Work', 'request-view': 'Request', 'coverage-view': 'Coverage', 'coverage-edit': 'Coverage' };
   function go(screen, push = true) {
     if (TABS.includes(screen)) stack = [screen]; else if (push) stack.push(screen);
     $$('.screen').forEach((s) => (s.hidden = true));
@@ -321,6 +326,7 @@
     if (k === 'campaign') openCampaignEditor({});
     if (k === 'keydate') openKeydateEditor({});
     if (k === 'hashset') openHashsetEditor({});
+    if (k === 'coverage') openCoverageEditor({ date: calSel >= ymd() ? calSel : ymd() });
   });
 
   function render() {
@@ -332,6 +338,9 @@
     if (s === 'post-view') renderPostView();
     if (s === 'event-view') renderEventView();
     if (s === 'campaign-view') renderCampaignView();
+    if (s === 'work') renderWork();
+    if (s === 'request-view') renderRequestView();
+    if (s === 'coverage-view') renderCoverageView();
   }
 
   /* ============================================================ chips (single & multi) */
@@ -354,7 +363,7 @@
 
   /* ============================================================ CALENDAR */
   let calView = settings.view || 'month', calCursor = ymd(), calSel = ymd();
-  const kinds = { event: true, post: true, key: true };
+  const kinds = { event: true, post: true, key: true, work: true };
   function itemsOn(day) {
     const out = [];
     if (kinds.event) L.events.forEach((e) => {
@@ -365,6 +374,10 @@
     if (kinds.post) L.posts.forEach((p) => { if (p.date === day) out.push({ k: 'post', t: p.time || '', it: p }); });
     // multi-day key dates (e.g. 16 Days) show on their first day; a campaign banner covers the rest
     if (kinds.key) L.keydates.forEach((k) => { if (day === k.date) out.push({ k: 'key', t: '', it: k }); });
+    if (kinds.work) {
+      L.requests.forEach((r) => { if (['Accepted', 'In progress'].includes(r.status) && r.dueDate === day && !(r.coverageId && L.coverage.some((c) => c.id === r.coverageId && c.date === day))) out.push({ k: 'req', t: '', it: r }); });
+      L.coverage.forEach((c) => { if (c.date === day) out.push({ k: 'cov', t: c.time || '', it: c }); });
+    }
     return out.sort((a, b) => (a.k === 'key' ? -1 : b.k === 'key' ? 1 : (a.t || '00') .localeCompare(b.t || '00')));
   }
   const campaignsOn = (day) => L.campaigns.filter((c) => day >= c.start && day <= c.end);
@@ -374,6 +387,8 @@
       const p = x.it, m = (p.media || [])[0], th = m ? thumbFor(m) : '';
       return `<div class="item t-post" data-post="${esc(p.id)}"><span class="time">${x.t || ''}</span><div class="main"><b>📣 ${esc(p.title)}</b><small>${esc((p.platforms || []).join(', ') || 'No platform yet')}${p._pending ? ' · not synced' : ''}</small></div>${th ? `<img class="thumb" src="${th}" alt="">` : ''}${stPill(p.status)}</div>`;
     }
+    if (x.k === 'req') return `<div class="item t-req" data-req="${esc(x.it.id)}"><span class="time">🎯</span><div class="main"><b>${esc(x.it.title)}</b><small>Request · ${esc(x.it.fromName)} · ${esc(x.it.status)}</small></div></div>`;
+    if (x.k === 'cov') return `<div class="item t-cov" data-cov="${esc(x.it.id)}"><span class="time">${x.t || '🎥'}</span><div class="main"><b>🎥 ${esc(x.it.title)}</b><small>Coverage · ${covProgress(x.it)}${x.it.location ? ' · ' + esc(x.it.location) : ''}</small></div></div>`;
     const k = x.it; const n = daysBetween(ymd(), k.date);
     return `<div class="item t-key" data-key="${esc(k.id)}"><span class="time">⭐</span><div class="main"><b>${esc(k.name)}</b><small>${esc(k.category || '')}${k.endDate ? ' · until ' + fmtDay(k.endDate) : ''}</small></div>${n > 0 ? `<span class="countdown">in ${n} day${n > 1 ? 's' : ''}</span>` : ''}</div>`;
   }
@@ -428,6 +443,8 @@
     const ev = e.target.closest('[data-ev]'); if (ev) return openEventView(ev.dataset.ev);
     const k = e.target.closest('[data-key]'); if (k) return openKeydateEditor(find('keydate', k.dataset.key) || {});
     const c = e.target.closest('[data-camp]'); if (c) return openCampaignView(c.dataset.camp);
+    const rq = e.target.closest('[data-req]'); if (rq) return openRequestView(rq.dataset.req);
+    const cv = e.target.closest('[data-cov]'); if (cv && !e.target.closest('[data-star],[data-shot],[data-eq],label')) return openCoverageView(cv.dataset.cov);
     const i = e.target.closest('[data-idea]'); if (i && !e.target.closest('button,a,audio')) return openIdeaEditor(find('idea', i.dataset.idea));
   });
 
@@ -457,6 +474,11 @@
     if (big) { toast('That video is over 500 MB – please trim it first'); return; }
     toast('Adding…', 1200);
     const added = await addMediaFiles(files);
+    if (inp.dataset.media.startsWith('shot:')) {
+      const i = +inp.dataset.media.split(':')[1]; added.forEach((m) => (m.shot = i));
+      const c = find('coverage', viewingCov); const shots = clone(c.shots); if (shots[i]) shots[i].done = true;
+      await saveCov({ media: [...(c.media || []), ...added], shots }); toast('Added – uploads to Drive on sync'); return;
+    }
     if (inp.dataset.media === 'capture') { capMedia.push(...added); $('#capMedia').innerHTML = mediaStrip(capMedia, true); }
     else { editMedia.push(...added); renderEditMedia(); editorDirty = true; saveDraftSoon(); }
   });
@@ -886,6 +908,260 @@
   });
   $('#heDelete').addEventListener('click', async () => { if (!confirm('Delete this hashtag set?')) return; await queue('hashset', 'delete', editing.id); editorDirty = false; clearDraft(); back(); });
 
+  /* ============================================================ WORK: comms requests + event coverage */
+  const DEFAULT_SHOTS = ['Wide shot of the venue and crowd', 'THP / partner banners and branding', 'Each speaker at the front', 'Participants listening – close-ups of faces',
+    'Hands-on activity / demonstration', 'Portraits of 2–3 participants (with consent)', 'Short video interview – one strong quote (30–60 s)',
+    'B-roll video clips (10–20 s each)', 'Chiefs, officials and partners', 'Group photo at the end', 'Details: hands, tools, produce, materials'];
+  const DEFAULT_EQUIP = ['Camera + charged batteries', 'Phone charged + power bank', 'Empty memory cards', 'Tripod / gimbal', 'Microphone (lapel)',
+    'Consent app on tablet (or printed forms)', 'THP T-shirt / ID and banner', 'Notebook and pen'];
+  let workSeg = 'requests', reqFilter = 'open';
+  const REQ_RANK = { New: 0, Accepted: 1, 'In progress': 2, Done: 3, Declined: 4 };
+  const formLink = () => (S && S.requestKey && settings.url
+    ? `${location.origin}${location.pathname.replace(/[^/]*$/, '')}request.html#u=${encodeURIComponent(settings.url)}&k=${S.requestKey}` : '');
+  const covProgress = (c) => { const s = c.shots || []; return `${s.filter((x) => x.done).length}/${s.length} shots`; };
+
+  function renderWork() {
+    $$('#workSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === workSeg));
+    $('#workRequests').hidden = workSeg !== 'requests'; $('#workCoverage').hidden = workSeg !== 'coverage';
+    $('#reqNewCount').textContent = L.requests.filter((r) => r.status === 'New').length || '';
+    $$('#reqFilters button').forEach((b) => b.classList.toggle('on', b.dataset.f === reqFilter));
+    let list = L.requests.slice();
+    list = reqFilter === 'open' ? list.filter((r) => ['New', 'Accepted', 'In progress'].includes(r.status)) : list.filter((r) => r.status === reqFilter);
+    const dk = (r) => String(r.dueDate || r.eventDate || r.neededBy || '9999');
+    list.sort((a, b) => (REQ_RANK[a.status] - REQ_RANK[b.status]) || ((b.priority === 'Urgent') - (a.priority === 'Urgent')) || dk(a).localeCompare(dk(b)));
+    $('#reqList').innerHTML = list.map(reqCard).join('') || `<p class="empty-note">${reqFilter === 'open' ? 'No open requests 🎉' : 'Nothing here.'}</p>`;
+    const t = ymd(); const cov = L.coverage.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const up = cov.filter((c) => c.date >= t), past = cov.filter((c) => c.date < t).reverse();
+    $('#covList').innerHTML = (up.length ? '<div class="agenda-day">Upcoming</div>' + up.map(covCard).join('') : '<p class="empty-note">No upcoming coverage.</p>') +
+      (past.length ? '<div class="agenda-day">Past</div>' + past.slice(0, 20).map(covCard).join('') : '');
+    $('#btnCopyForm').disabled = $('#btnShareForm').disabled = !formLink();
+  }
+  function reqCard(r) {
+    const when = r.dueDate ? 'Due ' + fmtDay(r.dueDate) : r.eventDate ? 'Event ' + fmtDay(r.eventDate) : r.neededBy ? 'Needed by ' + fmtDay(r.neededBy) : '';
+    const open = ['New', 'Accepted', 'In progress'].includes(r.status);
+    return `<div class="req-card ${r.priority === 'Urgent' && open ? 'urgent' : ''}" data-req="${esc(r.id)}"><b>${esc(r.title)}</b>
+      <small>${esc(r.type)} · ${esc(r.fromName)}${r.team ? ' (' + esc(r.team) + ')' : ''}${r._pending ? ' · not synced' : ''}</small>
+      <div class="row"><small>${esc(when)}</small><span>${r.priority === 'Urgent' && open ? '<span class="status st-Changes-requested">Urgent</span> ' : ''}${stPill(r.status)}</span></div></div>`;
+  }
+  function covCard(c) {
+    return `<div class="item t-cov" data-cov="${esc(c.id)}"><span class="time">${esc(fmtDay(c.date, { day: 'numeric', month: 'short' }))}</span><div class="main"><b>🎥 ${esc(c.title)}</b>
+      <small>${esc(c.location || '')}${c.location ? ' · ' : ''}${covProgress(c)}${c._pending ? ' · not synced' : ''}</small></div>${stPill(c.status || 'Planned')}</div>`;
+  }
+  $('#workSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; workSeg = b.dataset.v; renderWork(); });
+  $('#reqFilters').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; reqFilter = b.dataset.f; renderWork(); });
+  $('#btnCopyForm').addEventListener('click', async () => { if (await copyText(formLink())) toast('Request form link copied'); });
+  $('#btnShareForm').addEventListener('click', async () => {
+    const url = formLink(); if (!url) return;
+    if (navigator.share) { try { await navigator.share({ title: 'THP Ghana comms requests', text: 'Need event coverage, a post, a flyer or photos from the comms team? Send your request here:', url }); } catch (_) { } }
+    else if (await copyText(url)) toast('Link copied');
+  });
+  $('#btnOpenForm').addEventListener('click', () => { const u = formLink(); if (u) window.open(u, '_blank'); else toast('Connect to Google first (sync once)'); });
+
+  /* ---- request view ---- */
+  let viewingReq = '';
+  function openRequestView(id) { viewingReq = id; $('#rvAccept').hidden = true; go('request-view'); }
+  function renderRequestView() {
+    const r = find('request', viewingReq); if (!r) { back(); return; }
+    $('#rvEyebrow').textContent = `${r.type} · ${r.id}`;
+    $('#rvTitle').textContent = r.title;
+    $('#rvStatus').className = 'status st-' + String(r.status).replace(/\s+/g, '-');
+    $('#rvStatus').textContent = r.status + (r._pending ? ' · not synced yet' : '');
+    $('#rvUrgent').hidden = r.priority !== 'Urgent';
+    const rows = [['From', `${r.fromName}${r.team ? ' – ' + r.team : ''}`], ['Email', r.fromEmail], ['Phone', r.fromPhone],
+      ['Received', r.createdAt ? new Date(r.createdAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''],
+      ['Event', [r.eventDate && fmtDay(r.eventDate), r.eventTime, r.location].filter(Boolean).join(' · ')], ['Needed by', r.neededBy && fmtDay(r.neededBy)],
+      ['My due date', r.dueDate && fmtDay(r.dueDate)], ['Message sent', r.replyMessage]].filter((x) => x[1]);
+    const wa = (v) => String(v).replace(/\D/g, '').replace(/^0/, '233');
+    $('#rvMeta').innerHTML = rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${k === 'Email' ? `<a href="mailto:${esc(v)}">${esc(v)}</a>`
+      : k === 'Phone' ? `<a href="tel:${esc(v)}">${esc(v)}</a> · <a href="https://wa.me/${esc(wa(v))}" target="_blank" rel="noopener">WhatsApp</a>` : esc(v)}</dd></div>`).join('');
+    $('#rvDetails').textContent = r.details || 'No details given.';
+    $('#rvFiles').innerHTML = (r.files || []).length ? '<p><b>Attachments</b><br>' + r.files.map((f) => `<a href="${esc(f.url)}" target="_blank" rel="noopener">📎 ${esc(f.name)}</a>`).join('<br>') + '</p>' : '';
+    const links = [];
+    if (r.coverageId && find('coverage', r.coverageId)) links.push(`<button class="btn" data-cov="${esc(r.coverageId)}">🎥 Open coverage plan</button>`);
+    if (r.postId && find('post', r.postId)) links.push(`<button class="btn" data-post="${esc(r.postId)}">📣 Open draft post</button>`);
+    $('#rvLinks').innerHTML = links.join('');
+    const a = [];
+    if (r.status === 'New') a.push('<button class="btn primary big" data-ra="accept">Accept…</button>', '<button class="btn danger" data-ra="decline">Decline…</button>');
+    if (r.status === 'Accepted') a.push('<button class="btn" data-ra="progress">Mark as in progress</button>');
+    if (['Accepted', 'In progress'].includes(r.status)) {
+      if (!r.coverageId) a.push('<button class="btn" data-ra="cover">🎥 Create coverage plan</button>');
+      if (!r.postId) a.push('<button class="btn" data-ra="post">📣 Create draft post</button>');
+      a.push('<button class="btn approve big" data-ra="done">✓ Mark as done…</button>', '<button class="btn danger" data-ra="decline">Decline…</button>');
+    }
+    if (['Done', 'Declined'].includes(r.status)) a.push('<button class="btn" data-ra="reopen">Reopen</button>');
+    $('#rvActions').innerHTML = a.join('');
+    $('#rvActions').hidden = !$('#rvAccept').hidden;
+    if (document.activeElement !== $('#rvNotes')) $('#rvNotes').value = r.notes || '';
+  }
+  async function saveReq(changes) { const r = find('request', viewingReq); await queue('request', 'upsert', { ...r, ...changes }); if (cur() === 'request-view') renderRequestView(); }
+  $('#rvActions').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-ra]'); if (!b) return;
+    const r = find('request', viewingReq); const act = b.dataset.ra;
+    if (act === 'accept') {
+      $('#raDue').value = r.eventDate || r.neededBy || addDays(ymd(), 3);
+      $('#raCov').checked = ['Event coverage', 'Photos / video'].includes(r.type);
+      $('#raPost').checked = ['Social media post', 'Event coverage'].includes(r.type);
+      $('#raEvWrap').hidden = !r.eventDate; $('#raEv').checked = !!r.eventDate && ['Event coverage', 'Photos / video'].includes(r.type);
+      $('#raMsg').value = ''; $('#rvAccept').hidden = false; $('#rvActions').hidden = true;
+      $('#rvAccept').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (act === 'decline') {
+      const m = prompt(`Reason (sent to ${r.fromName} by email):`); if (m === null) return;
+      if (!m.trim()) { toast('Please give a short reason'); return; }
+      await saveReq({ status: 'Declined', replyMessage: m.trim() }); toast('Declined – they get an email when synced');
+    }
+    if (act === 'progress') await saveReq({ status: 'In progress' });
+    if (act === 'done') {
+      const m = prompt(`Message for ${r.fromName} (optional – e.g. a link to the post or the files):`, ''); if (m === null) return;
+      await saveReq({ status: 'Done', replyMessage: m.trim() }); toast(`Done ✓ – ${r.fromName} gets an email when synced`);
+    }
+    if (act === 'reopen') await saveReq({ status: 'In progress' });
+    if (act === 'cover') { const c = await createCoverageFromRequest(r, false); await saveReq({ coverageId: c.id }); openCoverageView(c.id); }
+    if (act === 'post') { const p = await createPostFromRequest(r, r.dueDate || r.neededBy || ''); await saveReq({ postId: p.id }); openPostView(p.id); }
+  });
+  $('#raCancel').addEventListener('click', () => { $('#rvAccept').hidden = true; $('#rvActions').hidden = false; });
+  $('#raConfirm').addEventListener('click', async () => {
+    const r = find('request', viewingReq); const due = $('#raDue').value || '';
+    const ch = { status: 'Accepted', dueDate: due, replyMessage: $('#raMsg').value.trim() };
+    if ($('#raCov').checked && !r.coverageId) { const c = await createCoverageFromRequest(r, $('#raEv').checked); ch.coverageId = c.id; }
+    else if ($('#raEv').checked && r.eventDate) await queue('event', 'upsert', reqEvent(r));
+    if ($('#raPost').checked && !r.postId) { const p = await createPostFromRequest(r, due); ch.postId = p.id; }
+    $('#rvAccept').hidden = true; $('#rvActions').hidden = false;
+    await saveReq(ch);
+    toast(`Accepted – ${r.fromName} gets an email when synced`);
+  });
+  $('#rvSaveNotes').addEventListener('click', async () => { await saveReq({ notes: $('#rvNotes').value }); toast('Notes saved'); });
+  function reqEvent(r) {
+    const t = r.eventTime || '09:00'; const [h, m] = t.split(':').map(Number);
+    return { id: 'local-' + newId('EV'), title: '📸 ' + r.title, allDay: false, start: `${r.eventDate}T${t}`, end: `${r.eventDate}T${pad2(Math.min(23, h + 2))}:${pad2(m || 0)}`,
+      location: r.location || '', description: `Comms coverage for ${r.fromName}${r.team ? ' (' + r.team + ')' : ''}.\n\n${r.details || ''}` };
+  }
+  async function createCoverageFromRequest(r, addEvent) {
+    const c = { id: newId('CV'), title: r.title, date: r.eventDate || r.neededBy || ymd(), time: r.eventTime || '', location: r.location || '', requestId: r.id, eventId: '',
+      contacts: [{ name: r.fromName, role: r.team || 'Requester', phone: r.fromPhone || '' }],
+      shots: DEFAULT_SHOTS.map((t) => ({ text: t, done: false })), equipment: DEFAULT_EQUIP.map((t) => ({ text: t, done: false })),
+      consentNeeded: '', consentCollected: '0', notes: r.details || '', status: 'Planned', highlights: '', media: [], postId: '' };
+    if (addEvent && r.eventDate) { const ev = reqEvent(r); c.eventId = ev.id; await queue('event', 'upsert', ev); }
+    await queue('coverage', 'upsert', c);
+    return c;
+  }
+  async function createPostFromRequest(r, date) {
+    const p = { id: newId('PO'), title: r.title, status: date ? 'Draft' : 'Idea', date: date || '', time: date ? settings.postTime : '', platforms: ['Facebook', 'Instagram'],
+      campaignId: '', caption: r.details || '', custom: {}, hashtags: '', tags: [r.type], media: [], notes: `From request ${r.id} by ${r.fromName}`,
+      postedLink: '', ideaId: '', eventId: '', createdAt: new Date().toISOString() };
+    await queue('post', 'upsert', p);
+    return p;
+  }
+
+  /* ---- coverage view ---- */
+  let viewingCov = '';
+  function openCoverageView(id) { viewingCov = id; go('coverage-view'); }
+  function renderCoverageView() {
+    const c = find('coverage', viewingCov); if (!c) { back(); return; }
+    $('#cgTitle').textContent = c.title;
+    $('#cgEyebrow').textContent = `Coverage plan · ${c.status || 'Planned'}${c._pending ? ' · not synced yet' : ''}`;
+    $('#cgWhen').textContent = [fmtDay(c.date, { weekday: 'long', day: 'numeric', month: 'long' }), c.time, c.location].filter(Boolean).join(' · ');
+    const links = []; const rq = c.requestId && find('request', c.requestId);
+    if (rq) links.push(`<button class="btn small" data-req="${esc(c.requestId)}">🎯 Request from ${esc(rq.fromName)}</button>`);
+    if (c.eventId && find('event', c.eventId)) links.push(`<button class="btn small" data-ev="${esc(c.eventId)}">📅 Calendar event</button>`);
+    if (c.postId && find('post', c.postId)) links.push(`<button class="btn small" data-post="${esc(c.postId)}">📣 Draft post</button>`);
+    $('#cgLinks').innerHTML = links.join('');
+    $('#cgContacts').innerHTML = (c.contacts || []).map((p) => `<div class="contact"><div><b>${esc(p.name)}</b><small>${esc(p.role || '')}</small></div>${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : ''}</div>`).join('') || '<p class="empty-note">No contacts yet – add them with “Edit plan”.</p>';
+    const eq = c.equipment || [];
+    $('#cgEquip').innerHTML = eq.map((x, i) => `<div class="ck ${x.done ? 'done' : ''}"><span class="box" data-eq="${i}">${x.done ? '✓' : ''}</span><span class="txt">${esc(x.text)}</span></div>`).join('') || '<p class="empty-note">No equipment list.</p>';
+    $('#cgEqCount').textContent = `${eq.filter((x) => x.done).length} of ${eq.length} packed`;
+    $('#cgConsent').textContent = c.consentCollected || '0';
+    $('#cgConsentOf').textContent = c.consentNeeded ? `collected of ~${c.consentNeeded} needed` : 'forms collected';
+    const shots = c.shots || [];
+    $('#cgShots').innerHTML = shots.map((x, i) => {
+      const ms = (c.media || []).map((m, j) => ({ m, j })).filter((o) => o.m.shot === i);
+      return `<div class="ck ${x.done ? 'done' : ''}"><span class="box" data-shot="${i}">${x.done ? '✓' : ''}</span><div class="txt">${esc(x.text)}
+        ${ms.length ? `<div class="media-strip">${ms.map(({ m, j }) => `<div class="m" data-cm="${j}">${thumbFor(m) ? `<img src="${thumbFor(m)}" alt="">` : '<div class="vid"></div>'}${m.kind === 'video' ? '<span class="badge-v">▶</span>' : ''}<button type="button" class="star" data-star="${j}" aria-label="Best">${m.best ? '★' : '☆'}</button>${!m.fileId ? '<span class="up">not uploaded</span>' : ''}</div>`).join('')}</div>` : ''}</div>
+        <label class="addm">+ 📷<input type="file" accept="image/*,video/*" multiple data-media="shot:${i}" hidden></label></div>`;
+    }).join('') || '<p class="empty-note">No shot list.</p>';
+    $('#cgShotCount').textContent = `${shots.filter((x) => x.done).length} of ${shots.length} done`;
+    if (document.activeElement !== $('#cgHighlights')) $('#cgHighlights').value = c.highlights || '';
+    $('#cgMakePost').textContent = c.postId && find('post', c.postId) ? 'Open the draft post' : 'Create draft post';
+  }
+  async function saveCov(changes, rerender = true) { const c = find('coverage', viewingCov); await queue('coverage', 'upsert', { ...c, ...changes }); if (rerender && cur() === 'coverage-view') renderCoverageView(); }
+  $('#cgEquip').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-eq]'); if (!b) return;
+    const c = find('coverage', viewingCov); const eq = clone(c.equipment); eq[+b.dataset.eq].done = !eq[+b.dataset.eq].done; saveCov({ equipment: eq });
+  });
+  $('#cgShots').addEventListener('click', (e) => {
+    const c = find('coverage', viewingCov);
+    const b = e.target.closest('[data-shot]'); if (b) { const s2 = clone(c.shots); s2[+b.dataset.shot].done = !s2[+b.dataset.shot].done; saveCov({ shots: s2 }); return; }
+    const st = e.target.closest('[data-star]'); if (st) { const m = clone(c.media); m[+st.dataset.star].best = !m[+st.dataset.star].best; saveCov({ media: m }); return; }
+    const cm = e.target.closest('[data-cm]');
+    if (cm) { const m = c.media[+cm.dataset.cm]; DB.get('media', m.mid).then((rec) => { if (rec && rec.blob) window.open(URL.createObjectURL(rec.blob), '_blank'); else if (m.url) window.open(m.url, '_blank'); }); }
+  });
+  $('#cgPlus').addEventListener('click', () => { const c = find('coverage', viewingCov); saveCov({ consentCollected: String((parseInt(c.consentCollected, 10) || 0) + 1) }); });
+  $('#cgMinus').addEventListener('click', () => { const c = find('coverage', viewingCov); saveCov({ consentCollected: String(Math.max(0, (parseInt(c.consentCollected, 10) || 0) - 1)) }); });
+  $('#cgSaveAfter').addEventListener('click', async () => { await saveCov({ highlights: $('#cgHighlights').value }); toast('Saved'); });
+  $('#cgMakePost').addEventListener('click', async () => {
+    const c = find('coverage', viewingCov);
+    if (c.postId && find('post', c.postId)) { openPostView(c.postId); return; }
+    const hl = $('#cgHighlights').value.trim();
+    const best = (c.media || []).filter((m) => m.best);
+    const media = (best.length ? best : (c.media || []).slice(0, 4)).map((m) => { const x = { ...m }; delete x.shot; delete x.best; return x; });
+    const p = { id: newId('PO'), title: c.title, status: 'Draft', date: addDays(ymd(), 1), time: settings.postTime, platforms: ['Facebook', 'Instagram'], campaignId: '',
+      caption: hl || `${c.title}${c.location ? ' in ' + c.location : ''}.`, custom: {}, hashtags: '', tags: ['Event'], media, notes: `From coverage plan ${c.id}`,
+      postedLink: '', ideaId: '', eventId: '', createdAt: new Date().toISOString() };
+    await queue('post', 'upsert', p);
+    await saveCov({ highlights: hl, postId: p.id, status: 'Covered' }, false);
+    toast('Draft post created for tomorrow – edit and schedule it'); openPostView(p.id);
+  });
+  $('#cgEdit').addEventListener('click', () => openCoverageEditor(find('coverage', viewingCov)));
+  $('#cgDelete').addEventListener('click', async () => { if (!confirm('Delete this coverage plan? Photos/videos already uploaded stay in Drive.')) return; await queue('coverage', 'delete', viewingCov); back(); });
+  $('#evCover').addEventListener('click', () => {
+    const e = find('event', viewingEv);
+    const existing = L.coverage.find((c) => c.eventId === e.id); if (existing) { openCoverageView(existing.id); return; }
+    openCoverageEditor({ title: e.title, date: String(e.start).slice(0, 10), time: timeOf(e.start), location: e.location || '', eventId: e.id });
+  });
+
+  /* ---- coverage editor ---- */
+  function openCoverageEditor(c = {}, restore = null) {
+    const f = $('#screen-coverage-edit');
+    editing = { type: 'coverage', id: c.id || '', extra: { eventId: c.eventId || '', requestId: c.requestId || '' } };
+    f.reset(); clearErrs(f);
+    fillForm(f, { ...c, date: c.date || ymd(),
+      contacts: (c.contacts || []).map((p) => [p.name, p.role, p.phone].filter(Boolean).join(' – ')).join('\n'),
+      shots: (c.shots || DEFAULT_SHOTS.map((t) => ({ text: t }))).map((x) => x.text).join('\n'),
+      equipment: (c.equipment || DEFAULT_EQUIP.map((t) => ({ text: t }))).map((x) => x.text).join('\n') });
+    f.elements.addEvent.checked = false; f.elements.addEvent.closest('label').hidden = !!c.eventId;
+    if (restore) fillForm(f, restore.fields);
+    $('#ceHeading').textContent = c.id ? 'Edit coverage plan' : 'New coverage plan';
+    editorDirty = !!restore; go('coverage-edit');
+  }
+  $('#cgSave').addEventListener('click', async () => {
+    const f = $('#screen-coverage-edit'); clearErrs(f);
+    if (!fv(f, 'title')) return fail(f.elements.title, 'Add a title');
+    if (!fv(f, 'date')) return fail(f.elements.date, 'Pick a date');
+    const old = editing.id ? find('coverage', editing.id) : null;
+    const keep = (lines, prev) => lines.split('\n').map((x) => x.trim()).filter(Boolean).map((text) => ({ text, done: !!(prev || []).find((x) => x.text === text && x.done) }));
+    const contacts = fv(f, 'contacts').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const phone = (l.match(/\+?\d[\d\s]{6,}\d/) || [''])[0].trim();
+      const parts = l.replace(phone, '').split(/\s+[–-]\s+|\s*[–-]\s*$/).map((x) => x.trim()).filter(Boolean);
+      return { name: parts[0] || l, role: parts[1] || '', phone };
+    });
+    const c = { ...(old || {}), id: editing.id || newId('CV'), title: fv(f, 'title'), date: fv(f, 'date'), time: fv(f, 'time'), location: fv(f, 'location'), contacts,
+      shots: keep(fv(f, 'shots'), old && old.shots), equipment: keep(fv(f, 'equipment'), old && old.equipment),
+      consentNeeded: fv(f, 'consentNeeded'), consentCollected: old ? old.consentCollected : '0', notes: fv(f, 'notes'), status: old ? old.status : 'Planned',
+      highlights: old ? old.highlights : '', media: old ? old.media || [] : [], postId: old ? old.postId : '',
+      eventId: (old && old.eventId) || editing.extra.eventId || '', requestId: (old && old.requestId) || editing.extra.requestId || '' };
+    // photos stay attached to the same shot even if the list was edited
+    if (old && old.media && old.shots) c.media = old.media.map((m) => { if (m.shot == null) return m; const t = (old.shots[m.shot] || {}).text; const ni = c.shots.findIndex((x) => x.text === t); return { ...m, shot: ni >= 0 ? ni : null }; });
+    if (f.elements.addEvent.checked && !c.eventId) {
+      const t = c.time || '09:00'; const [h, m] = t.split(':').map(Number);
+      const ev = { id: 'local-' + newId('EV'), title: '📸 ' + c.title, allDay: false, start: `${c.date}T${t}`, end: `${c.date}T${pad2(Math.min(23, h + 2))}:${pad2(m || 0)}`, location: c.location, description: 'Comms coverage – plan in THP Calendar.' };
+      c.eventId = ev.id; await queue('event', 'upsert', ev);
+    }
+    await queue('coverage', 'upsert', c);
+    editorDirty = false; clearDraft(); toast('Coverage plan saved');
+    stack.pop(); viewingCov = c.id; if (cur() !== 'coverage-view') stack.push('coverage-view'); go('coverage-view', false);
+  });
+
   /* ============================================================ SETTINGS */
   $('#btnSettings').addEventListener('click', () => {
     $('#setUrl').value = settings.url; $('#setKey').value = settings.key; $('#setDevice').value = settings.device; $('#setPostTime').value = settings.postTime;
@@ -919,6 +1195,7 @@
       if (d.screen === 'campaign-edit') openCampaignEditor(base, d);
       if (d.screen === 'keydate-edit') openKeydateEditor(base, d);
       if (d.screen === 'hashset-edit') openHashsetEditor(base, d);
+      if (d.screen === 'coverage-edit') openCoverageEditor({ ...base, ...(it.extra || {}) }, d);
       if (cur() !== 'calendar') toast('Continuing where you left off');
     }
     setSyncInfo();

@@ -16,7 +16,7 @@
 
 <header class="topbar">
   <button class="icon-btn" id="btnBackTop" aria-label="Back" hidden><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-  <img src="assets/logo.png" alt="The Hunger Project Ghana" class="topbar-logo">
+  <img src="assets/icon-192.png" alt="THP Calendar" class="topbar-logo app-mark">
   <div class="topbar-title">
     <strong id="topTitle">Calendar</strong>
     <span id="netStatus" class="net">Checking…</span>
@@ -39,6 +39,7 @@
       <button data-k="event" class="on"><i class="k-event"></i>Meetings &amp; events</button>
       <button data-k="post" class="on"><i class="k-post"></i>Posts</button>
       <button data-k="key" class="on"><i class="k-key"></i>Key dates</button>
+      <button data-k="work" class="on"><i class="k-req"></i>Work</button>
       <button id="btnToday">Today</button>
     </div>
     <div id="calList"></div>
@@ -46,6 +47,7 @@
       <button data-new="post">📣 New post</button>
       <button data-new="event">📅 New meeting / event</button>
       <button data-new="idea">💡 Quick idea</button>
+      <button data-new="coverage">🎥 Coverage plan</button>
     </div>
     <button class="fab" id="fab" aria-label="Add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   </section>
@@ -162,6 +164,7 @@
     <div class="actions">
       <a class="btn" id="evOpen" target="_blank" rel="noopener">Open in Google Calendar</a>
       <button class="btn primary" id="evPlan">Plan a post about this</button>
+      <button class="btn" id="evCover">🎥 Plan coverage</button>
       <div class="row2"><button class="btn" id="evEdit">Edit</button><button class="btn danger" id="evDelete">Delete</button></div>
     </div>
   </section>
@@ -249,6 +252,97 @@
     <div class="actions"><button type="button" class="btn primary big" id="heSave">Save</button><button type="button" class="btn danger" id="heDelete">Delete</button></div>
   </form>
 
+
+  <!-- ================= WORK: requests + coverage ================= -->
+  <section class="screen" id="screen-work" data-tab="work" hidden>
+    <div class="seg two" id="workSeg"><button data-v="requests" class="on">Requests <span id="reqNewCount"></span></button><button data-v="coverage">Coverage</button></div>
+    <div id="workRequests">
+      <div class="card share-form">
+        <b>Colleagues send requests with this form</b>
+        <p class="hint" style="margin:4px 0 10px">Share the link once (WhatsApp group, email signature). No app or password needed.</p>
+        <div class="row2"><button class="btn small" id="btnCopyForm">Copy link</button><button class="btn small" id="btnShareForm">Share…</button></div>
+        <button class="link-btn" id="btnOpenForm">Open the form</button>
+      </div>
+      <div class="filters" id="reqFilters">
+        <button data-f="open" class="on">To do</button><button data-f="New">New</button><button data-f="Accepted">Accepted</button>
+        <button data-f="In progress">In progress</button><button data-f="Done">Done</button><button data-f="Declined">Declined</button>
+      </div>
+      <div id="reqList"></div>
+    </div>
+    <div id="workCoverage" hidden>
+      <button class="btn primary big" data-new="coverage" style="margin-bottom:12px">+ New coverage plan</button>
+      <div id="covList"></div>
+    </div>
+  </section>
+
+  <!-- ================= REQUEST VIEW ================= -->
+  <section class="screen" id="screen-request-view" hidden>
+    <p class="eyebrow" id="rvEyebrow"></p>
+    <h1 id="rvTitle"></h1>
+    <p><span class="status" id="rvStatus"></span> <span class="status st-Changes-requested" id="rvUrgent" hidden>Urgent</span></p>
+    <dl class="review" id="rvMeta"></dl>
+    <div class="preview-cap" id="rvDetails" style="margin-top:12px"></div>
+    <div id="rvFiles"></div>
+    <div id="rvLinks" class="actions"></div>
+    <div class="card" id="rvAccept" hidden style="margin-top:14px">
+      <h2>Accept request</h2>
+      <label class="field">My due date<input type="date" id="raDue"></label>
+      <label class="check toggle"><input type="checkbox" id="raCov"><span>Create a <b>coverage plan</b> (shot list, equipment, consent)</span></label>
+      <label class="check toggle" style="margin-top:8px"><input type="checkbox" id="raPost"><span>Create a <b>draft post</b> in the calendar</span></label>
+      <label class="check toggle" style="margin-top:8px" id="raEvWrap"><input type="checkbox" id="raEv"><span>Add the event to my <b>Google Calendar</b></span></label>
+      <label class="field" style="margin-top:12px">Message to the requester <small>(optional, goes in the email)</small><textarea class="short" id="raMsg"></textarea></label>
+      <div class="row2"><button class="btn" id="raCancel">Cancel</button><button class="btn primary" id="raConfirm">Accept</button></div>
+    </div>
+    <div class="actions" id="rvActions"></div>
+    <label class="field" style="margin-top:16px">My notes <small>(only you see these)</small><textarea class="short" id="rvNotes"></textarea></label>
+    <button class="btn small" id="rvSaveNotes">Save notes</button>
+  </section>
+
+  <!-- ================= COVERAGE VIEW ================= -->
+  <section class="screen" id="screen-coverage-view" hidden>
+    <p class="eyebrow" id="cgEyebrow">Coverage plan</p>
+    <h1 id="cgTitle"></h1>
+    <p class="lead" id="cgWhen"></p>
+    <div id="cgLinks" class="actions" style="margin-top:0"></div>
+    <div class="section-title"><h2>Contacts on the ground</h2></div>
+    <div id="cgContacts"></div>
+    <div class="section-title"><h2>Before: equipment</h2><span class="hint" id="cgEqCount"></span></div>
+    <div class="card checklist" id="cgEquip"></div>
+    <div class="section-title"><h2>Consent forms</h2></div>
+    <div class="card consent-box">
+      <div class="consent-count"><button class="btn small" id="cgMinus">−</button><div><b id="cgConsent">0</b><small id="cgConsentOf"></small></div><button class="btn small" id="cgPlus">+</button></div>
+      <a class="btn small" href="https://thp-consent.github.io/thp-consent/" target="_blank" rel="noopener" style="margin-top:10px;width:100%">Open the Consent app</a>
+      <p class="hint">Everyone clearly visible in a photo or video needs a form – one per child.</p>
+    </div>
+    <div class="section-title"><h2>Shot list</h2><span class="hint" id="cgShotCount"></span></div>
+    <div class="card checklist" id="cgShots"></div>
+    <div class="section-title"><h2>After the event</h2></div>
+    <div class="card">
+      <label class="field">Highlights <small>(what happened, numbers, a quote)</small><textarea id="cgHighlights" placeholder="e.g. 120 farmers attended; the DCE launched the new seed bank…"></textarea></label>
+      <p class="hint">Tap ☆ on the best photos/videos above to include them in the post.</p>
+      <div class="actions">
+        <button class="btn primary big" id="cgMakePost">Create draft post</button>
+        <button class="btn" id="cgSaveAfter">Save highlights</button>
+      </div>
+    </div>
+    <div class="row2" style="margin-top:14px"><button class="btn" id="cgEdit">Edit plan</button><button class="btn danger" id="cgDelete">Delete</button></div>
+  </section>
+
+  <!-- ================= COVERAGE EDIT ================= -->
+  <form class="screen editor" id="screen-coverage-edit" hidden novalidate autocomplete="off">
+    <h1 id="ceHeading">Coverage plan</h1>
+    <label class="field req">Event / title<input name="title" type="text"></label>
+    <div class="row2"><label class="field req">Date<input name="date" type="date"></label><label class="field">Time<input name="time" type="time"></label></div>
+    <label class="field">Location<input name="location" type="text"></label>
+    <label class="field">Contacts on the ground <small>(one per line: Name – role – phone)</small><textarea class="short" name="contacts" placeholder="Ama Mensah – programme officer – 024 123 4567"></textarea></label>
+    <label class="field">Shot list <small>(one per line)</small><textarea name="shots" rows="9"></textarea></label>
+    <label class="field">Equipment <small>(one per line)</small><textarea name="equipment" rows="7"></textarea></label>
+    <label class="field">Consent forms needed <small>(estimate)</small><input name="consentNeeded" type="number" inputmode="numeric" min="0"></label>
+    <label class="field">Notes / brief<textarea class="short" name="notes"></textarea></label>
+    <label class="check toggle"><input type="checkbox" name="addEvent"><span>Also add to my <b>Google Calendar</b></span></label>
+    <div class="actions"><button type="button" class="btn primary big" id="cgSave">Save plan</button></div>
+  </form>
+
   <!-- ================= SETTINGS ================= -->
   <section class="screen" id="screen-settings" hidden>
     <h1>Settings</h1>
@@ -272,6 +366,7 @@
   <button data-tab-go="calendar" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Calendar</button>
   <button data-tab-go="ideas"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>Ideas</button>
   <button data-tab-go="posts"><svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>Posts</button>
+  <button data-tab-go="work"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>Work<span class="dot" id="workDot" hidden>0</span></button>
   <button data-tab-go="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>More</button>
 </nav>
 
